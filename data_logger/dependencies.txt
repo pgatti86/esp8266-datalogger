@@ -1,0 +1,5 @@
+Per compilare il progetto è necessario importare nell'ide di Arduino le seguenti librerie:
+- Sensore temperatura e umidità DHT11 http://learn.adafruit.com/dht/downloads
+
+To compile the project you need to import into Arduino IDE the following libraries:
+- Temperature and humidity sensor DHT11 http://learn.adafruit.com/dht/downloads
