@@ -3,22 +3,33 @@
 #include <SoftwareSerial.h>
 #include "SensorData.h"
 
+#define NO_ALARM_ID 0
+#define TEMP_ALARM_ID 1
+#define HUM_ALARM_ID 2
+#define GAS_ALARM_ID 3
+
+#define TEMP_H_BOUND 35  
+#define TEMP_L_BOUND 16
+#define HUM_H_BOUND 80
+#define HUM_L_BOUND 20
+#define GAS_H_BOUND 5
+
 #define DHTPIN 2
 #define DHTTYPE DHT11
 
 #define debug true
 
 char * const NET_CONF[] PROGMEM = { 
-         "192.168.1.3", //IP ADDRESS
+         "192.168.1.10", //IP ADDRESS
          "192.168.1.1",  // GATEWAY
          "255.255.255.0", // NETMASK 
-         "XXXXXXXXXXXXXXXX", // things speak API KEY
-         "your_network_SSID", //SSID
-         "your_password", // PWD
+         "XXXXXXXXXXX", // things speak API KEY
+         "SSID", //SSID
+         "password" // PWD
          }; 
 
 long lastConnectionRetry = 0;
-int CONN_RETRY_DELAY = 1000; // 1 minute
+int CONN_RETRY_DELAY = 1000;  // 1 minute
 
 long lastSensorCheck = 0;
 long SENSOR_CHECK_RATE = 300000; // 5 minutes
@@ -27,11 +38,11 @@ long lastConnectionCheck = 0;
 long CONN_CHECK_RATE = 300000; // 5 minutes
 
 long lastSensorDataUpdate = 0;
-long SENSOR_DATA_UPDATE = 30000; //30 seconds
+long SENSOR_DATA_UPDATE = 1200000; // 20 minutes
 
-byte OUT_CONN_ID = 0;  //OUTPUT CONNECTION ID
+byte OUT_CONN_ID = 0;
 
-float R0 = 0; //Gas sensor in clean air resistance (mq2 sensor)
+float R0 = 0; //Gas sensor in clean air resistance
 
 boolean connected = false;
 
@@ -85,7 +96,7 @@ void loop() {
       response += " is ";
       response += digitalRead(pinNumber) == HIGH ? "ON" : "OFF";
 
-      sendHTTPResponse(connectionId,response);
+      sendHTTPResponse(response, connectionId);
      
       // make close command
       String closeCommand = "AT+CIPCLOSE="; 
@@ -136,6 +147,7 @@ void initWifiModule() {
 
   //set net config
   String cmd = "AT+CIPSTA=\"";
+
   cmd += String((char *) pgm_read_word (&NET_CONF [0])) + "\",\"";
   cmd += String((char *) pgm_read_word (&NET_CONF [1])) + "\",\"";
   cmd += String((char *) pgm_read_word (&NET_CONF [2])) + "\"";
@@ -145,10 +157,8 @@ void initWifiModule() {
   //set mode
   sendESPCommand("AT+CWMODE=1",1000);//1 CLI, 2 HOST, 3 both
 
-  //set multiple connection
   sendESPCommand("AT+CIPMUX=1",1000);//0 Single conn, 1 Multiple conn (4 max) 
 
-  //start web server (toggle onboard led)
   sendESPCommand("AT+CIPSERVER=1",1000);//Start webserver on port 333
 }
 
@@ -197,7 +207,7 @@ void checkConnectionStatus() {
         Serial.println("Connected");
         break;
       case 4:
-        Serial.println("Disconnected"); //bugged, reset not needed (module still connected)
+        Serial.println("Disconnected"); //bugged
         //resetModule();
         break;
       case 5:
@@ -234,8 +244,8 @@ void updateChannels() {
   cmd += OUT_CONN_ID;
   cmd += ",";
   cmd += "\"TCP\",\"";
-  cmd += "184.106.153.149"; //thingspeak address
-  cmd += "\",80";           //port
+  cmd += "184.106.153.149";
+  cmd += "\",80";
 
   sendESPCommand(cmd,0);
 
@@ -245,16 +255,20 @@ void updateChannels() {
   }
 
   SensorData *data = getSensorsData(); 
-  String query =  "field1=" + String(data->temperature) + 
-                  "&field2=" + String(data->humidity) + 
-                  "&field3=" + String(data->rawGasValue) + 
-                  "&field4=" + String(data->gasConcentration);     
+  String query =  "field1=" + String(data->temperature,2) + 
+                  "&field2=" + String(data->humidity,2) + 
+                  "&field3=" + String(data->ch4Concentration) + 
+                  "&field4=" + String(data->smokeConcentration) +
+                  "&field5=" + String(data->coConcentration) +
+                  "&field6=" + String(data->alarmFlag);    
   
   sendGetRequest(query);
   free(data);
   
   //close TCP connection
   sendESPCommand("AT+CIPCLOSE=" + OUT_CONN_ID,1000);
+
+  OUT_CONN_ID = OUT_CONN_ID > 3 ? 0 : OUT_CONN_ID +1;
 }
 
 void sendGetRequest(String query) {
@@ -269,7 +283,7 @@ void sendGetRequest(String query) {
   sendCIPData(request,OUT_CONN_ID);
 }
 
-void sendHTTPResponse(int connectionId, String content){
+void sendHTTPResponse(String content, int connectionId){
      
   String httpResponse;
   httpResponse = "HTTP/1.1 200 OK\nContent-Type: text/html; charset=UTF-8\n"; 
@@ -278,6 +292,7 @@ void sendHTTPResponse(int connectionId, String content){
   httpResponse += "\n";
   httpResponse +="Connection: close\n\n";
   httpResponse += content;
+  
   sendCIPData(httpResponse,connectionId);
 }
 
@@ -301,8 +316,6 @@ void sendESPCommand(String command,int timeout){
 
 void sendCIPData(String data,int connectionId){
 
-  OUT_CONN_ID = OUT_CONN_ID > 3 ? 0 : OUT_CONN_ID +1;
- 
   String cmd = "AT+CIPSEND=";
   cmd += connectionId;
   cmd += ",";
@@ -331,44 +344,57 @@ void calibrateGasSensor(){
   R0 = val/9.8;
 }
 
-int getGasConcentration(int gasAdcValue){
+int getGasConcentration(int gasAdcValue,double x, double y, double slope){
   
   byte RL_VALUE = 5;//5Kohm
   float val = (((float)RL_VALUE*(1023-gasAdcValue)/gasAdcValue));
   float ratio = val/R0;
 
-  return (pow(10,(((log(ratio)-0.53)/-0.44) + 2.3)));
+  return (pow(10,(((log(ratio)-y)/slope) + x)));
 }
 
 boolean checkSensors(){
-
+  
   SensorData *data = getSensorsData();
-  boolean needUpdate = false;
-
-  if(data->temperature > 50)
-    needUpdate = true;
-
-  if(data->humidity > 80)
-    needUpdate = true;
-
-  if(data->rawGasValue > 500)  
-    needUpdate = true;
-
-  if(data->gasConcentration > 100)
-    needUpdate = true; 
-
+  int alarmFlag = data->alarmFlag;
   free(data);
-  return needUpdate;
+  
+  return alarmFlag > NO_ALARM_ID;
 }
 
 SensorData *getSensorsData(){
 
   SensorData *data = (SensorData*)malloc(sizeof(struct SensorData));
+  
   data->humidity = dht.readHumidity();
   data->temperature = dht.readTemperature(); 
-  data->rawGasValue = analogRead(A0);
-  data->gasConcentration = getGasConcentration(data->rawGasValue);
+  
+  data->ch4Concentration = getGasConcentration(analogRead(A0),2.3,0.47,-0.44);
+  data->smokeConcentration = getGasConcentration(analogRead(A0),2.3,0.53,-0.44);
+  data->coConcentration = getGasConcentration(analogRead(A0),2.3,0.72,-0.34);
+
+  setAlarmFlag(data);
+    
   return data;
+}
+
+void setAlarmFlag(SensorData *data){
+
+  byte value = NO_ALARM_ID;
+
+  if(data->temperature >= TEMP_H_BOUND || data->temperature <= TEMP_L_BOUND){
+    value = TEMP_ALARM_ID;
+  }
+
+  if(data->humidity >= HUM_H_BOUND || data-> humidity <= HUM_L_BOUND ){
+    value += HUM_ALARM_ID;
+  }
+
+  if(data->ch4Concentration >= GAS_H_BOUND || data->smokeConcentration >= GAS_H_BOUND || data->coConcentration >= GAS_H_BOUND){
+    value += GAS_ALARM_ID;
+  }
+
+  data->alarmFlag = value;
 }
 
 

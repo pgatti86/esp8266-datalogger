@@ -1,7 +1,9 @@
 struct SensorData {
-  float humidity;
   float temperature; 
-  int rawGasValue;
-  int gasConcentration;
+  float humidity;
+  int ch4Concentration;
+  int smokeConcentration;
+  int coConcentration;
+  int alarmFlag;
 };
 
