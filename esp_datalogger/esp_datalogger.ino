@@ -28,17 +28,17 @@ char * const NET_CONF[] PROGMEM = {
          "password" // PWD
          }; 
 
-long lastConnectionRetry = 0;
-int CONN_RETRY_DELAY = 1000;  // 1 minute
+unsigned long lastConnectionRetry = 0;
+int CONN_RETRY_DELAY = 1000;
 
-long lastSensorCheck = 0;
+unsigned long lastSensorCheck = 0;
 long SENSOR_CHECK_RATE = 300000; // 5 minutes
 
-long lastConnectionCheck = 0;
-long CONN_CHECK_RATE = 300000; // 5 minutes
+unsigned long lastConnectionCheck = 0;
+long CONN_CHECK_RATE = 300000; // 5 minutes 300000
 
-long lastSensorDataUpdate = 0;
-long SENSOR_DATA_UPDATE = 1200000; // 20 minutes
+unsigned long lastSensorDataUpdate = 0;
+long SENSOR_DATA_UPDATE = 1200000; // 20 min
 
 byte OUT_CONN_ID = 0;
 
@@ -106,7 +106,7 @@ void loop() {
     }
   }
   
-  long currentMillis = millis();
+  unsigned long currentMillis = millis();
   
   if (!connected && (currentMillis - lastConnectionRetry >= CONN_RETRY_DELAY)) {
     lastConnectionRetry = currentMillis;
@@ -129,7 +129,6 @@ void loop() {
     lastConnectionCheck = currentMillis;
     checkConnectionStatus();
   }
-
 }
 
 void initWifiModule() {
@@ -301,7 +300,7 @@ void sendESPCommand(String command,int timeout){
   clearSerialBuffer();
    
   swSerial.println(command); 
-  long int time = millis();
+  unsigned long time = millis();
  
   if(debug){
     while(time + timeout > millis()){
@@ -386,7 +385,7 @@ void setAlarmFlag(SensorData *data){
     value = TEMP_ALARM_ID;
   }
 
-  if(data->humidity >= HUM_H_BOUND || data-> humidity <= HUM_L_BOUND ){
+  if(data->humidity >= HUM_H_BOUND || data->humidity <= HUM_L_BOUND ){
     value += HUM_ALARM_ID;
   }
 
@@ -396,7 +395,6 @@ void setAlarmFlag(SensorData *data){
 
   data->alarmFlag = value;
 }
-
 
 
 
